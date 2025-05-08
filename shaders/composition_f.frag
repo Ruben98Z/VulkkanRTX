@@ -41,32 +41,40 @@ layout(location = 0) out vec4 out_color;
 
 
 
-float evalVisibility(vec4 fragPosLightSpace, sampler2DArray shadowMaps, uint lightIndex)
-{
-    // Paso 1: Proyectar el fragmento a coordenadas de la luz
-    // Realizamos la división por w para pasar a NDC
+
+
+float evalVisibility(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir, uint lightIndex) {
+    // 1. Proyección a coordenadas de la luz
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    
+    // 2. Verificar si está fuera del frustum de la luz
+    if(projCoords.z < -1.0 || projCoords.z > 1.0)
+        return 1.0; // Fuera del área de influencia: considerado visible
 
-    // Transformamos las coordenadas de [-1,1] a [0,1]
-    projCoords = projCoords * 0.5 + 0.5;
-
-    // Si el fragmento esta fuera del rango del shadow map, se asume iluminado
-    if (projCoords.z > 1.0 || projCoords.x < 0.0 || projCoords.x > 1.0 || projCoords.y < 0.0 || projCoords.y > 1.0) {
+    // 3. Convertir a coordenadas de textura [0,1]
+     projCoords.xy  = projCoords.xy * 0.5 + 0.5;
+    
+    // 4. Early exit para coordenadas fuera del shadow map
+    if(projCoords.x < 0.0 || projCoords.x > 1.0 || 
+       projCoords.y < 0.0 || projCoords.y > 1.0)
         return 1.0;
-    }
 
-    // Paso 2: Leer la profundidad del shadow map
-    float closestDepth = texture(shadowMaps, vec3(projCoords.xy, float(lightIndex))).r;
-
-    // Paso 3: Comparar la profundidad con un pequeño bias
+    // 5. Mejor cálculo de bias dinámico
+    float cosTheta = clamp(dot(normal, lightDir), 0.0, 1.0);
+    float bias = mix(0.005, 0.0002, cosTheta * cosTheta); // Ajuste no-lineal
+    
+    // 6. Ajustar para depth range de la luz
     float currentDepth = projCoords.z;
+    
+    // 7. Muestreo del shadow map con offset suavizado
+    float shadowMapDepth = texture(i_shadow_map, vec3(projCoords.xy, float(lightIndex))).r;
 
-    // Bias para evitar shadow acne (ajustar segun escala de la escena)
-    float bias = 0.005;
-
-    // Paso 4: Determinar visibilidad
-    return (currentDepth - bias) > closestDepth ? 0.0 : 1.0;
+    // 8. Comparación con tolerancia para precisión de depth
+    float depthDifference = shadowMapDepth - currentDepth;
+    return (depthDifference < -0.0001) ? 0.0 : 1.0;
 }
+
+
 
 
 vec3 evalDiffuse()
@@ -83,14 +91,15 @@ vec3 evalDiffuse()
         uint light_type = uint( floor( light.m_light_pos.a ) );
 
         vec4 light_space_pos = light.view_projection * vec4(frag_pos, 1.0);
-        float visibility = evalVisibility( light_space_pos, i_shadow_map, id_light);
+        
 
         switch( light_type )
         {
             case 0: //directional
             {
                 vec3 l = normalize( - light.m_light_pos.xyz );
-                shading += max( dot( n, l ), 0.0 ) * light.m_radiance.rgb * albedo.rgb;// * visibility  Multiplicar por visibility para aplicar sombras
+				float visibility = evalVisibility( light_space_pos, n, l, id_light);
+                shading += max( dot( n, l ), 0.0 ) * light.m_radiance.rgb * albedo.rgb * visibility;
                 break;
             }
             case 1: //point
@@ -100,8 +109,8 @@ vec3 evalDiffuse()
                 float att = 1.0 / (light.m_attenuattion.x + light.m_attenuattion.y * dist + light.m_attenuattion.z * dist * dist );
                 vec3 radiance = light.m_radiance.rgb * att;
                 l = normalize(l);
-
-                shading += max( dot( n, l ), 0.0 ) * albedo.rgb * radiance;// * visibility  Multiplicar por visibility para aplicar sombras
+				float visibility = evalVisibility( light_space_pos, n, l, id_light);
+                shading += max( dot( n, l ), 0.0 ) * albedo.rgb * radiance * visibility;
                 break;
             }
             case 2: //ambient
@@ -153,7 +162,7 @@ vec3 evalMicrofacets() {
         vec3 viewDir = normalize(per_frame_data.m_camera_pos.xyz - fragPosition);
 
         vec4 light_space_pos = light.view_projection * vec4(fragPosition, 1.0);
-        float visibility = evalVisibility( light_space_pos, i_shadow_map, id_light);
+        
 
         if(light_type == 0) { // Direccionales
             lightDir = normalize(light.m_light_pos.xyz);
@@ -163,7 +172,7 @@ vec3 evalMicrofacets() {
         }
         
 
-        // Calculos comunes
+        // Cálculos comunes
         vec3 halfwayVec = normalize(viewDir + lightDir);
         float NdotV = max(dot(surfaceNormal, viewDir), 1e-7);
         float NdotL = max(dot(surfaceNormal, lightDir), 1e-7);
@@ -186,7 +195,8 @@ vec3 evalMicrofacets() {
         vec3 Lo = vec3(0.0);
 
         if(light_type == 0){
-            Lo = (diffuse + specular) * light.m_radiance.rgb * NdotL;// * visibility  Multiplicar por visibility para aplicar sombras
+			float visibility = evalVisibility( light_space_pos, surfaceNormal, lightDir, id_light);
+            Lo = (diffuse + specular) * light.m_radiance.rgb * NdotL * visibility;
         } 
         else if(light_type == 1){
             vec3 toLight = light.m_light_pos.xyz - fragPosition;
@@ -194,7 +204,8 @@ vec3 evalMicrofacets() {
             float attenuation = 1.0 / (light.m_attenuattion.x + 
                                      light.m_attenuattion.y * distance + 
                                      light.m_attenuattion.z * distance * distance);
-            Lo = (diffuse + specular) * light.m_radiance.rgb * attenuation * NdotL;// * visibility Multiplicar por visibility para aplicar sombras
+			float visibility = evalVisibility( light_space_pos, surfaceNormal, lightDir, id_light);
+            Lo = (diffuse + specular) * light.m_radiance.rgb * attenuation * NdotL * visibility;
         }
 
         surfaceColor += Lo;
@@ -213,16 +224,16 @@ void main()
     float exposure = 1.0f;
     vec4 material = texture( i_material, f_uvs );
     vec3 mapped = vec3(0.0);
-    float ssao = texture(i_ssao, f_uvs).r;
+    float AO = texture(i_ssao, f_uvs).r;
 
 
     if (material.x == 0.0)
     {
-        mapped = vec3( 1.0f ) - exp(-evalDiffuse() * ssao * exposure);
+        mapped = vec3( 1.0f ) - exp(-evalDiffuse() * AO * exposure);
     }
     else if (material.x == 1.0)
     {
-        mapped = vec3( 1.0f ) - exp(-evalMicrofacets() * ssao * exposure);
+        mapped = vec3( 1.0f ) - exp(-evalMicrofacets() * AO * exposure);
     }
         
 
