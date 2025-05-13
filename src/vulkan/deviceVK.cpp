@@ -185,9 +185,33 @@ void DeviceVK::createDevice()
     m_extensions.push_back( VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME );
     m_extensions.push_back( VK_KHR_MAINTENANCE1_EXTENSION_NAME           );
 
+     // Extensions requeridas para RTX
+    m_extensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+    m_extensions.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+    m_extensions.push_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+    m_extensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    m_extensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+    m_extensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures{};
+    rayTracingPipelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+    rayTracingPipelineFeatures.rayTracingPipeline = VK_TRUE;
+
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{};
+    accelerationStructureFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+    accelerationStructureFeatures.accelerationStructure = VK_TRUE;
+    accelerationStructureFeatures.pNext = &rayTracingPipelineFeatures;
+
     VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{};
     bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
     bufferDeviceAddressFeatures.bufferDeviceAddress = VK_TRUE;
+    bufferDeviceAddressFeatures.pNext = &accelerationStructureFeatures;
+
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{};
+    descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+    descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    descriptorIndexingFeatures.runtimeDescriptorArray = VK_TRUE;
+    descriptorIndexingFeatures.pNext = &bufferDeviceAddressFeatures;
 
 
     VkDeviceCreateInfo device_create_info = {};
@@ -195,7 +219,7 @@ void DeviceVK::createDevice()
     device_create_info.queueCreateInfoCount = static_cast< uint32_t >( queue_create_infos.size() );
     device_create_info.pQueueCreateInfos    = queue_create_infos.data();
     device_create_info.pEnabledFeatures     = &m_physical_device_features;
-    device_create_info.pNext                = &bufferDeviceAddressFeatures;
+    device_create_info.pNext                = &descriptorIndexingFeatures;
 
     // Enable the debug marker extension if it is present (likely meaning a debugging tool is present)
 #ifdef DEBUG
