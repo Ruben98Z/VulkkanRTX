@@ -15,7 +15,8 @@ MeshVK::MeshVK( const Runtime& i_runtime, const std::string& i_path, const std::
     m_indices       ( i_indices   ),
     m_vertices      ( i_vertices  ),
     m_indices_buffer( VK_NULL_HANDLE ),
-    m_data_buffer   ( VK_NULL_HANDLE )
+    m_data_buffer   ( VK_NULL_HANDLE ),
+    m_blas_buffer   ( VK_NULL_HANDLE )
 {
 
 }
@@ -41,6 +42,18 @@ bool MeshVK::initialize()
         UtilsVK::setObjectTag ( m_runtime.m_renderer->getDevice()->getLogicalDevice(), (uint64_t) m_indices_buffer, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, 0, m_path.size(), m_path.c_str() );
     }
 
+    // Crear la BLAS
+    UtilsVK::createBLAS(
+        *m_runtime.m_renderer->getDevice(),
+        m_data_buffer,
+        m_indices_buffer,
+        m_vertices,
+        m_indices,
+        m_blas,
+        m_blas_buffer,
+        m_blas_memory
+    );
+
     return true;
 }
 
@@ -48,6 +61,19 @@ bool MeshVK::initialize()
 void MeshVK::shutdown()
 {
     const RendererVK&  renderer = *m_runtime.m_renderer;
+
+    if (m_blas)
+    {
+        vkDestroyAccelerationStructure(renderer.getDevice()->getLogicalDevice(), m_blas, nullptr);
+        m_blas = VK_NULL_HANDLE;
+    }
+
+    if (m_blas_buffer)
+    {
+        vkDestroyBuffer(renderer.getDevice()->getLogicalDevice(), m_blas_buffer, nullptr);
+        vkFreeMemory(renderer.getDevice()->getLogicalDevice(), m_blas_memory, nullptr);
+        m_blas_buffer = VK_NULL_HANDLE;
+    }
 
     if( m_indices_buffer )
     {
@@ -94,7 +120,13 @@ VkBuffer MeshVK::createVertexBuffer( const std::vector<Vertex>& i_data, VkDevice
     vkUnmapMemory( m_runtime.m_renderer->getDevice()->getLogicalDevice(), staging_memory );
 
 
-    UtilsVK::createBuffer( *m_runtime.m_renderer->getDevice(), size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertex_buffer, i_memory );
+    UtilsVK::createBuffer(*m_runtime.m_renderer->getDevice(), size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        vertex_buffer, i_memory);
 
     UtilsVK::copyBuffer( *m_runtime.m_renderer->getDevice(), staging_buffer, vertex_buffer, size );
 
@@ -119,7 +151,13 @@ void MeshVK::createIndexBuffer()
     vkUnmapMemory( m_runtime.m_renderer->getDevice()->getLogicalDevice(), staging_memory );
 
 
-    UtilsVK::createBuffer( *m_runtime.m_renderer->getDevice(), size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_indices_buffer, m_indices_memory );
+    UtilsVK::createBuffer(*m_runtime.m_renderer->getDevice(), size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        m_indices_buffer, m_indices_memory);
 
     UtilsVK::copyBuffer( *m_runtime.m_renderer->getDevice(), staging_buffer, m_indices_buffer, size );
 
