@@ -1,6 +1,9 @@
 #version 460
 
+
 #extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_ray_query : enable
+
 #define INV_PI 0.31830988618
 #define PI   3.14159265358979323846264338327950288
 
@@ -35,6 +38,7 @@ layout ( set = 0, binding = 3 ) uniform sampler2D i_normal;
 layout ( set = 0, binding = 4 ) uniform sampler2D i_material;
 layout ( set = 0, binding = 5 ) uniform sampler2D i_ssao;
 layout ( set = 0, binding = 6 ) uniform sampler2DArray i_shadow_map;
+layout ( set = 0, binding = 7 ) uniform accelerationStructureEXT tlas;
 
  
 layout(location = 0) out vec4 out_color;
@@ -43,7 +47,42 @@ layout(location = 0) out vec4 out_color;
 
 
 
-float evalVisibility(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir, uint lightIndex) {
+float evalVisibility(vec3 frag_pos, vec3 normal, vec3 light_dir) {
+    vec3 origin = frag_pos + normal * 0.01;
+    vec3 direction = normalize(light_dir);
+    float t_min = 0.001;
+    float t_max = 100.0;
+
+    rayQueryEXT ray_query;
+
+    rayQueryInitializeEXT(
+        ray_query,
+        tlas,
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT,
+        0xFF,
+        origin,
+        t_min,
+        direction,
+        t_max
+    );
+
+    bool hit = false;
+    while(rayQueryProceedEXT(ray_query)) {
+        if(rayQueryGetIntersectionTypeEXT(ray_query, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
+            rayQueryConfirmIntersectionEXT(ray_query);
+        }
+    }
+
+    if (rayQueryGetIntersectionTypeEXT(ray_query, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+        hit = true;
+    }
+
+    return hit ? 0.0 : 1.0;
+}
+
+
+
+float evalVisibilityShadowMapping(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir, uint lightIndex) {
     // 1. Proyección a coordenadas de la luz
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     
@@ -98,7 +137,8 @@ vec3 evalDiffuse()
             case 0: //directional
             {
                 vec3 l = normalize( - light.m_light_pos.xyz );
-				float visibility = evalVisibility( light_space_pos, n, l, id_light);
+				//float visibility = evalVisibilityShadowMapping( light_space_pos, n, l, id_light);
+                float visibility = evalVisibility(frag_pos, n, l);
                 shading += max( dot( n, l ), 0.0 ) * light.m_radiance.rgb * albedo.rgb * visibility;
                 break;
             }
@@ -109,7 +149,8 @@ vec3 evalDiffuse()
                 float att = 1.0 / (light.m_attenuattion.x + light.m_attenuattion.y * dist + light.m_attenuattion.z * dist * dist );
                 vec3 radiance = light.m_radiance.rgb * att;
                 l = normalize(l);
-				float visibility = evalVisibility( light_space_pos, n, l, id_light);
+				//float visibility = evalVisibilityShadowMapping( light_space_pos, n, l, id_light);
+                float visibility = evalVisibility(frag_pos, n, l);
                 shading += max( dot( n, l ), 0.0 ) * albedo.rgb * radiance * visibility;
                 break;
             }
@@ -195,7 +236,8 @@ vec3 evalMicrofacets() {
         vec3 Lo = vec3(0.0);
 
         if(light_type == 0){
-			float visibility = evalVisibility( light_space_pos, surfaceNormal, lightDir, id_light);
+			//float visibility = evalVisibilityShadowMapping( light_space_pos, surfaceNormal, lightDir, id_light);
+            float visibility = evalVisibility(fragPosition, surfaceNormal, lightDir);
             Lo = (diffuse + specular) * light.m_radiance.rgb * NdotL * visibility;
         } 
         else if(light_type == 1){
@@ -204,7 +246,8 @@ vec3 evalMicrofacets() {
             float attenuation = 1.0 / (light.m_attenuattion.x + 
                                      light.m_attenuattion.y * distance + 
                                      light.m_attenuattion.z * distance * distance);
-			float visibility = evalVisibility( light_space_pos, surfaceNormal, lightDir, id_light);
+			//float visibility = evalVisibilityShadowMapping( light_space_pos, surfaceNormal, lightDir, id_light);
+            float visibility = evalVisibility(fragPosition, surfaceNormal, lightDir);
             Lo = (diffuse + specular) * light.m_radiance.rgb * attenuation * NdotL * visibility;
         }
 

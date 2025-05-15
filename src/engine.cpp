@@ -24,6 +24,7 @@
 #include "vulkan/windowVK.h"
 #include "vulkan/deviceVK.h"
 #include "vulkan/utilsVK.h"
+#include "vulkan/meshVK.h"
 
 
 
@@ -179,6 +180,23 @@ void Engine::shutdown()
     m_runtime.m_mesh_registry->shutdown();
     m_runtime.m_shader_registry->shutdown();
 
+    // Destruccion del tlas
+    if (m_tlas != VK_NULL_HANDLE)
+    {
+        vkDestroyAccelerationStructure(renderer.getDevice()->getLogicalDevice(), m_tlas, nullptr);
+        m_tlas = VK_NULL_HANDLE;
+    }
+    if (m_tlas_buffer != VK_NULL_HANDLE)
+    {
+        vkDestroyBuffer(renderer.getDevice()->getLogicalDevice(), m_tlas_buffer, nullptr);
+        m_tlas_buffer = VK_NULL_HANDLE;
+    }
+    if (m_tlas_memory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(renderer.getDevice()->getLogicalDevice(), m_tlas_memory, nullptr);
+        m_tlas_memory = VK_NULL_HANDLE;
+    }
+
     m_runtime.m_renderer->shutdown();
 }
 
@@ -311,6 +329,7 @@ void Engine::createRenderPasses ()
         m_render_target_attachments.m_shadow_attachment,
         m_runtime.m_renderer->getWindow().getSwapChainImages()
     );
+    composition_pass->setTopLevelAS(m_tlas);
     composition_pass->initialize();
 
     m_render_passes.push_back( composition_pass );
@@ -377,6 +396,31 @@ void Engine::updateGlobalBuffers()
         perframe_data.m_lights[perframe_data.m_number_of_lights].m_view_projection = light->getLightSpaceMatrix(light, const_cast<Camera&>(m_scene->getCamera()));
 
     }
+
+    // 1) Recolectar transforms y handles de BLAS
+    std::vector<Matrix4f>                  transforms;
+    std::vector<VkAccelerationStructureKHR> blasInstances;
+
+    for (auto& entity : m_scene->getMeshes())
+    {
+        // 1a) Transform
+        transforms.push_back(entity->getTransform().getTransform());
+
+        // 1b) BLAS handle desde MeshVK mediante getBlas()
+        const auto& meshPtr = entity->getMesh();
+        assert(meshPtr && "Entidad sin MeshVK válido");
+        blasInstances.push_back(meshPtr->getBlas());
+    }
+
+    // 2) Llamada a UtilsVK::createTLAS en el orden correcto
+    MiniEngine::UtilsVK::createTLAS(
+        *m_runtime.m_renderer->getDevice(),
+        transforms,        // primero i_transforms
+        blasInstances,     // luego i_blas_instances
+        m_tlas,            // out TLAS
+        m_tlas_buffer,
+        m_tlas_memory
+    );
 
     // ssao buffer
     KernelSSAO kernel_ssao;

@@ -42,17 +42,26 @@ bool MeshVK::initialize()
         UtilsVK::setObjectTag ( m_runtime.m_renderer->getDevice()->getLogicalDevice(), (uint64_t) m_indices_buffer, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, 0, m_path.size(), m_path.c_str() );
     }
 
-    // Crear la BLAS
-    UtilsVK::createBLAS(
-        *m_runtime.m_renderer->getDevice(),
-        m_data_buffer,
-        m_indices_buffer,
-        m_vertices,
-        m_indices,
-        m_blas,
-        m_blas_buffer,
-        m_blas_memory
-    );
+    if (!m_indices.empty() && !m_vertices.empty()) 
+    {
+
+        // Crear la BLAS
+        UtilsVK::createBLAS(
+            *m_runtime.m_renderer->getDevice(),
+            m_data_buffer,
+            m_indices_buffer,
+            m_vertices,
+            m_indices,
+            m_blas,
+            m_blas_buffer,
+            m_blas_memory
+        );
+
+
+        UtilsVK::setObjectName(m_runtime.m_renderer->getDevice()->getLogicalDevice(), (uint64_t)m_blas, VK_DEBUG_REPORT_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR_EXT, "BLAS object");
+
+    }
+    
 
     return true;
 }
