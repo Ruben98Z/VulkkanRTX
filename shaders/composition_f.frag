@@ -46,8 +46,68 @@ layout(location = 0) out vec4 out_color;
 
 
 
+vec3 sampleDirectionInCone(vec3 coneDirection, float coneAngle, uint seed) {
+    // Método de muestreo uniforme en el cono
+    float u1 = fract(sin(dot(vec2(seed, seed + 1), vec2(12.9898, 78.233))) * 43758.5453);
+    float u2 = fract(sin(dot(vec2(seed + 2, seed + 3), vec2(39.3468, 11.1357))) * 24634.6345);
 
-float evalVisibility(vec3 frag_pos, vec3 normal, vec3 light_dir) {
+    float cosTheta = mix(cos(coneAngle), 1.0, pow(u1, 4.0));
+    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+    float phi = 2.0 * 3.141592 * u2;
+
+    vec3 direction;
+    direction.x = cos(phi) * sinTheta;
+    direction.y = sin(phi) * sinTheta;
+    direction.z = cosTheta;
+
+    // Crear base ortonormal para transformar la dirección
+    vec3 up = abs(coneDirection.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(up, coneDirection));
+    vec3 bitangent = cross(coneDirection, tangent);
+
+    return normalize(tangent * direction.x + bitangent * direction.y + coneDirection * direction.z);
+}
+
+
+float evalVisibilityRTXSoft(vec3 frag_pos, vec3 normal, vec3 light_dir, float coneAngle, int numSamples) {
+    vec3 origin = frag_pos + normal * 0.01;
+    float t_min = 0.001;
+    float t_max = 100.0;
+
+    int visibleCount = 0;
+    uint randSeed = uint(gl_FragCoord.x * 17.0 + gl_FragCoord.y * 131.0);
+
+    for (int i = 0; i < numSamples; ++i) {
+        vec3 sample_dir = sampleDirectionInCone(light_dir, coneAngle, randSeed + uint(i));
+
+        rayQueryEXT ray_query;
+        rayQueryInitializeEXT(
+            ray_query,
+            tlas,
+            gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT,
+            0xFF,
+            origin,
+            t_min,
+            sample_dir,
+            t_max
+        );
+
+        while(rayQueryProceedEXT(ray_query)) {
+            if(rayQueryGetIntersectionTypeEXT(ray_query, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
+                rayQueryConfirmIntersectionEXT(ray_query);
+            }
+        }
+
+        if (rayQueryGetIntersectionTypeEXT(ray_query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+            visibleCount += 1;
+        }
+    }
+
+    float rawVisibility = float(visibleCount) / float(numSamples);
+    return clamp((rawVisibility - 0.2) / 0.8, 0.0, 1.0); // Ajuste de umbral
+}
+
+float evalVisibilityRTX(vec3 frag_pos, vec3 normal, vec3 light_dir) {
     vec3 origin = frag_pos + normal * 0.01;
     vec3 direction = normalize(light_dir);
     float t_min = 0.001;
@@ -82,6 +142,7 @@ float evalVisibility(vec3 frag_pos, vec3 normal, vec3 light_dir) {
 
 
 
+
 float evalVisibilityShadowMapping(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir, uint lightIndex) {
     // 1. Proyección a coordenadas de la luz
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
@@ -97,18 +158,14 @@ float evalVisibilityShadowMapping(vec4 fragPosLightSpace, vec3 normal, vec3 ligh
     if(projCoords.x < 0.0 || projCoords.x > 1.0 || 
        projCoords.y < 0.0 || projCoords.y > 1.0)
         return 1.0;
-
-    // 5. Mejor cálculo de bias dinámico
-    float cosTheta = clamp(dot(normal, lightDir), 0.0, 1.0);
-    float bias = mix(0.005, 0.0002, cosTheta * cosTheta); // Ajuste no-lineal
     
-    // 6. Ajustar para depth range de la luz
+    // 5. Ajustar para depth range de la luz
     float currentDepth = projCoords.z;
     
-    // 7. Muestreo del shadow map con offset suavizado
+    // 6. Muestreo del shadow map con offset suavizado
     float shadowMapDepth = texture(i_shadow_map, vec3(projCoords.xy, float(lightIndex))).r;
 
-    // 8. Comparación con tolerancia para precisión de depth
+    // 7. Comparación con tolerancia para precisión de depth
     float depthDifference = shadowMapDepth - currentDepth;
     return (depthDifference < -0.0001) ? 0.0 : 1.0;
 }
@@ -138,8 +195,16 @@ vec3 evalDiffuse()
             {
                 vec3 l = normalize( - light.m_light_pos.xyz );
 				//float visibility = evalVisibilityShadowMapping( light_space_pos, n, l, id_light);
-                float visibility = evalVisibility(frag_pos, n, l);
-                shading += max( dot( n, l ), 0.0 ) * light.m_radiance.rgb * albedo.rgb * visibility;
+
+                float coneAngle = 0.05; // Ajusta el ángulo según necesidad
+                int numSamples = 32;    // Muestras por pixel
+                //float visibility = evalVisibilityRTXSoft(frag_pos, n, l, coneAngle, numSamples);
+
+                float visibility = evalVisibilityRTX(frag_pos, n, l);
+
+                float softVisibility = max(visibility, 0.025);
+
+                shading += max( dot( n, l ), 0.0 ) * light.m_radiance.rgb * albedo.rgb * softVisibility;
                 break;
             }
             case 1: //point
@@ -149,9 +214,19 @@ vec3 evalDiffuse()
                 float att = 1.0 / (light.m_attenuattion.x + light.m_attenuattion.y * dist + light.m_attenuattion.z * dist * dist );
                 vec3 radiance = light.m_radiance.rgb * att;
                 l = normalize(l);
+
 				//float visibility = evalVisibilityShadowMapping( light_space_pos, n, l, id_light);
-                float visibility = evalVisibility(frag_pos, n, l);
-                shading += max( dot( n, l ), 0.0 ) * albedo.rgb * radiance * visibility;
+
+                float lightRadius = 0.25;
+                float coneAngle = atan(lightRadius / dist);
+                int numSamples = 32;
+                float visibility = evalVisibilityRTXSoft(frag_pos, n, l, coneAngle, numSamples);
+
+                //float visibility = evalVisibilityRTX(frag_pos, n, l);
+
+                float softVisibility = max(visibility, 0.025);
+
+                shading += max( dot( n, l ), 0.0 ) * albedo.rgb * radiance * softVisibility;
                 break;
             }
             case 2: //ambient
@@ -237,18 +312,36 @@ vec3 evalMicrofacets() {
 
         if(light_type == 0){
 			//float visibility = evalVisibilityShadowMapping( light_space_pos, surfaceNormal, lightDir, id_light);
-            float visibility = evalVisibility(fragPosition, surfaceNormal, lightDir);
-            Lo = (diffuse + specular) * light.m_radiance.rgb * NdotL * visibility;
+            
+            float coneAngle = 0.05;
+            int numSamples = 32;
+            //float visibility = evalVisibilityRTXSoft(fragPosition, surfaceNormal, lightDir, coneAngle, numSamples);
+
+            float visibility = evalVisibilityRTX(fragPosition, surfaceNormal, lightDir);
+
+            float softVisibility = max(visibility, 0.025);
+
+            Lo = (diffuse + specular) * light.m_radiance.rgb * NdotL * softVisibility;
         } 
         else if(light_type == 1){
             vec3 toLight = light.m_light_pos.xyz - fragPosition;
-            float distance = length(toLight);
+            float dist = length(toLight);
             float attenuation = 1.0 / (light.m_attenuattion.x + 
-                                     light.m_attenuattion.y * distance + 
-                                     light.m_attenuattion.z * distance * distance);
+                                     light.m_attenuattion.y * dist + 
+                                     light.m_attenuattion.z * dist * dist);
+
 			//float visibility = evalVisibilityShadowMapping( light_space_pos, surfaceNormal, lightDir, id_light);
-            float visibility = evalVisibility(fragPosition, surfaceNormal, lightDir);
-            Lo = (diffuse + specular) * light.m_radiance.rgb * attenuation * NdotL * visibility;
+
+            float lightRadius = 0.05;
+            float coneAngle = atan(lightRadius / dist);
+            int numSamples = 32;
+            float visibility = evalVisibilityRTXSoft(fragPosition, surfaceNormal, lightDir, coneAngle, numSamples);
+
+            //float visibility = evalVisibilityRTX(fragPosition, surfaceNormal, lightDir);
+
+            float softVisibility = max(visibility, 0.025);
+
+            Lo = (diffuse + specular) * light.m_radiance.rgb * attenuation * NdotL * softVisibility;
         }
 
         surfaceColor += Lo;
