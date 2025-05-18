@@ -285,13 +285,7 @@ void Engine::createRenderPasses ()
     auto prepass_depth = std::make_shared<DepthPrePassVK>(m_runtime, m_render_target_attachments.m_depth_attachment);
     prepass_depth->initialize();
     m_render_passes.push_back(prepass_depth);
-
-    
-    auto shadow_mapping = std::make_shared<ShadowPassVK>(m_runtime, m_render_target_attachments.m_shadow_attachment, 2048, 1);
-    shadow_mapping->initialize();
-    m_render_passes.push_back(shadow_mapping);
-    
-    
+   
 
     auto gbuffer_pass = std::make_shared<DeferredPassVK>(
         m_runtime, 
@@ -318,6 +312,9 @@ void Engine::createRenderPasses ()
     m_render_passes.push_back(ambient_occlusion_blur_pass);
 
 
+    auto shadow_mapping = std::make_shared<ShadowPassVK>(m_runtime, m_render_target_attachments.m_shadow_attachment, 2048, 1);
+    shadow_mapping->initialize();
+    m_render_passes.push_back(shadow_mapping);
 
     auto composition_pass = std::make_shared<CompositionPassVK>(
         m_runtime,
