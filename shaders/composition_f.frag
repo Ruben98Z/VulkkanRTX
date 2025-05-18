@@ -161,13 +161,32 @@ float evalVisibilityShadowMapping(vec4 fragPosLightSpace, vec3 normal, vec3 ligh
     
     // 5. Ajustar para depth range de la luz
     float currentDepth = projCoords.z;
-    
-    // 6. Muestreo del shadow map con offset suavizado
-    float shadowMapDepth = texture(i_shadow_map, vec3(projCoords.xy, float(lightIndex))).r;
+    float shadow = 0.0;
+    int samples = 0;
 
-    // 7. Comparación con tolerancia para precisión de depth
-    float depthDifference = shadowMapDepth - currentDepth;
-    return (depthDifference < -0.0001) ? 0.0 : 1.0;
+    /** SIN PCF
+    // 6. Leer profundidad directamente
+    float sampleDepth = texture(i_shadow_map, vec3(projCoords.xy, float(lightIndex))).r;
+
+    // 7. Comparar profundidad
+    float shadow = (sampleDepth < currentDepth) ? 0.0 : 1.0;
+    */
+
+    // 6. Tamaño del texel 
+    vec2 texelSize = 1.0 / vec2(2048.0, 2048.0); // <-- Cambia segun la resolucio del shadow map
+
+    // 7. PCF 3x3
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            vec2 offset = vec2(x, y) * texelSize;
+            float sampleDepth = texture(i_shadow_map, vec3(projCoords.xy + offset, float(lightIndex))).r;
+            shadow += (sampleDepth  < currentDepth) ? 0.0 : 1.0;
+            samples++;
+        }
+    }
+
+    shadow /= float(samples);
+    return shadow;
 }
 
 
@@ -196,11 +215,11 @@ vec3 evalDiffuse()
                 vec3 l = normalize( - light.m_light_pos.xyz );
 				//float visibility = evalVisibilityShadowMapping( light_space_pos, n, l, id_light);
 
-                float coneAngle = 0.05; // Ajusta el ángulo según necesidad
+                float coneAngle = 0.05; 
                 int numSamples = 32;    // Muestras por pixel
-                //float visibility = evalVisibilityRTXSoft(frag_pos, n, l, coneAngle, numSamples);
+                float visibility = evalVisibilityRTXSoft(frag_pos, n, l, coneAngle, numSamples);
 
-                float visibility = evalVisibilityRTX(frag_pos, n, l);
+                //float visibility = evalVisibilityRTX(frag_pos, n, l);
 
                 float softVisibility = max(visibility, 0.025);
 
@@ -217,7 +236,7 @@ vec3 evalDiffuse()
 
 				//float visibility = evalVisibilityShadowMapping( light_space_pos, n, l, id_light);
 
-                float lightRadius = 0.25;
+                float lightRadius = 0.025;
                 float coneAngle = atan(lightRadius / dist);
                 int numSamples = 32;
                 float visibility = evalVisibilityRTXSoft(frag_pos, n, l, coneAngle, numSamples);
@@ -315,9 +334,9 @@ vec3 evalMicrofacets() {
             
             float coneAngle = 0.05;
             int numSamples = 32;
-            //float visibility = evalVisibilityRTXSoft(fragPosition, surfaceNormal, lightDir, coneAngle, numSamples);
+            float visibility = evalVisibilityRTXSoft(fragPosition, surfaceNormal, lightDir, coneAngle, numSamples);
 
-            float visibility = evalVisibilityRTX(fragPosition, surfaceNormal, lightDir);
+            //float visibility = evalVisibilityRTX(fragPosition, surfaceNormal, lightDir);
 
             float softVisibility = max(visibility, 0.025);
 
@@ -332,7 +351,7 @@ vec3 evalMicrofacets() {
 
 			//float visibility = evalVisibilityShadowMapping( light_space_pos, surfaceNormal, lightDir, id_light);
 
-            float lightRadius = 0.05;
+            float lightRadius = 0.025;
             float coneAngle = atan(lightRadius / dist);
             int numSamples = 32;
             float visibility = evalVisibilityRTXSoft(fragPosition, surfaceNormal, lightDir, coneAngle, numSamples);
