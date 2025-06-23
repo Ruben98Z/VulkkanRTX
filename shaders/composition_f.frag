@@ -70,7 +70,10 @@ vec3 sampleDirectionInCone(vec3 coneDirection, float coneAngle, uint seed) {
 
 
 float evalVisibilityRTXSoft(vec3 frag_pos, vec3 normal, vec3 light_dir, float coneAngle, int numSamples) {
+    // Origen del rayo
     vec3 origin = frag_pos + normal * 0.01;
+
+    // Distancia mínima y máxima de recorrido del rayo
     float t_min = 0.001;
     float t_max = 100.0;
 
@@ -78,9 +81,12 @@ float evalVisibilityRTXSoft(vec3 frag_pos, vec3 normal, vec3 light_dir, float co
     uint randSeed = uint(gl_FragCoord.x * 17.0 + gl_FragCoord.y * 131.0);
 
     for (int i = 0; i < numSamples; ++i) {
+        // Dirección del rayo
         vec3 sample_dir = sampleDirectionInCone(light_dir, coneAngle, randSeed + uint(i));
 
+        // Inicialización del ray query
         rayQueryEXT ray_query;
+
         rayQueryInitializeEXT(
             ray_query,
             tlas,
@@ -92,6 +98,7 @@ float evalVisibilityRTXSoft(vec3 frag_pos, vec3 normal, vec3 light_dir, float co
             t_max
         );
 
+        // Busqueda de colisiones
         while(rayQueryProceedEXT(ray_query)) {
             if(rayQueryGetIntersectionTypeEXT(ray_query, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
                 rayQueryConfirmIntersectionEXT(ray_query);
@@ -103,16 +110,24 @@ float evalVisibilityRTXSoft(vec3 frag_pos, vec3 normal, vec3 light_dir, float co
         }
     }
 
+    // Se calcula la visibilidad como el porcentaje de rayos no bloqueados
     float rawVisibility = float(visibleCount) / float(numSamples);
-    return clamp((rawVisibility - 0.2) / 0.8, 0.0, 1.0); // Ajuste de umbral
+
+    return clamp((rawVisibility - 0.2) / 0.8, 0.0, 1.0); // Se ajusta el valor para suavizar el umbral de sombra (entre 0 y 1)
 }
 
 float evalVisibilityRTX(vec3 frag_pos, vec3 normal, vec3 light_dir) {
+    // Origen del rayo
     vec3 origin = frag_pos + normal * 0.01;
+
+    // Dirección del rayo
     vec3 direction = normalize(light_dir);
+
+    // Distancia mínima y máxima de recorrido del rayo
     float t_min = 0.001;
     float t_max = 100.0;
 
+    // Inicialización del ray query
     rayQueryEXT ray_query;
 
     rayQueryInitializeEXT(
@@ -126,6 +141,7 @@ float evalVisibilityRTX(vec3 frag_pos, vec3 normal, vec3 light_dir) {
         t_max
     );
 
+    // Busqueda de colisiones
     bool hit = false;
     while(rayQueryProceedEXT(ray_query)) {
         if(rayQueryGetIntersectionTypeEXT(ray_query, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
