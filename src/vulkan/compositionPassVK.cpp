@@ -550,7 +550,6 @@ void CompositionPassVK::createDescriptors()
         binfo.range     = sizeof( PerFrameData );
 
         std::array<VkDescriptorImageInfo, 6> image_infos;
-        //std::array<VkDescriptorImageInfo, 5> image_infos;
 
         image_infos[ 0 ].sampler     = m_in_color_attachment.m_sampler;
         image_infos[ 0 ].imageView   = m_in_color_attachment.m_image_view;
@@ -577,7 +576,6 @@ void CompositionPassVK::createDescriptors()
         image_infos[ 5 ].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
 
-        //std::array<VkWriteDescriptorSet, 7> set_write;
         std::array<VkWriteDescriptorSet, 8> set_write;
 
         set_write[ 0 ]                   = {};

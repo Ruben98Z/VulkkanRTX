@@ -26,6 +26,7 @@ namespace MiniEngine
         bool            initialize() override;
         void            shutdown  () override;
         VkCommandBuffer draw      ( const Frame& i_frame ) override;
+        void setTopLevelAS(VkAccelerationStructureKHR i_tlas) override;
 
     private:
         CompositionPassVK( const CompositionPassVK& ) = delete;
@@ -63,5 +64,7 @@ namespace MiniEngine
         ImageBlock m_in_ssao_attachment;
         ImageBlock m_in_shadow_attachment;
         std::array<ImageBlock, 3> m_output_swap_images;
+
+        VkAccelerationStructureKHR m_tlas = VK_NULL_HANDLE;
     };
 };
